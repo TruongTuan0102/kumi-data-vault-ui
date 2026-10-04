@@ -7,13 +7,15 @@
     branch: 'vault-data',
     vaultPath: 'data/vault.json',
     apiBase: 'https://api.github.com',
-    tokenKey: 'kumiVaultToken'
+    tokenKey: 'kumiVaultToken',
+    maxAttachmentBytes: 95 * 1024 * 1024
   });
 
   const LANGUAGE_LABELS = Object.freeze({
     routeros: 'RouterOS',
     powershell: 'PowerShell',
     python: 'Python',
+    lua: 'Lua / AutoTouch',
     batch: 'CMD / Batch',
     bash: 'Bash / Shell',
     javascript: 'JavaScript',
@@ -32,7 +34,9 @@
     editingId: null,
     deletingId: null,
     openIds: new Set(),
-    saving: false
+    saving: false,
+    pendingFiles: [],
+    removedAttachmentPaths: new Set()
   };
 
   const $ = (id) => document.getElementById(id);
@@ -61,6 +65,8 @@
     languageInput: $('languageInput'),
     tagsInput: $('tagsInput'),
     contentInput: $('contentInput'),
+    attachmentInput: $('attachmentInput'),
+    attachmentList: $('attachmentList'),
     detectedLanguage: $('detectedLanguage'),
     editorError: $('editorError'),
     saveBtn: $('saveBtn'),
@@ -118,6 +124,7 @@
     els.editorForm.addEventListener('submit', handleSave);
     els.contentInput.addEventListener('input', updateDetectedLanguage);
     els.languageInput.addEventListener('change', updateDetectedLanguage);
+    els.attachmentInput.addEventListener('change', handleAttachmentSelection);
 
     els.cancelDeleteBtn.addEventListener('click', closeDeleteConfirm);
     els.confirmDeleteBtn.addEventListener('click', handleDeleteConfirmed);
@@ -267,6 +274,13 @@
       language: LANGUAGE_LABELS[item.language] ? item.language : 'text',
       tags: Array.isArray(item.tags) ? item.tags.map(String).filter(Boolean) : [],
       content: String(item.content || ''),
+      attachments: Array.isArray(item.attachments) ? item.attachments.map((file) => ({
+        name: String(file.name || 'file'),
+        path: String(file.path || ''),
+        size: Number(file.size || 0),
+        type: String(file.type || ''),
+        sha: String(file.sha || '')
+      })).filter((file) => file.path) : [],
       createdAt: item.createdAt || now,
       updatedAt: item.updatedAt || item.createdAt || now
     };
@@ -288,7 +302,8 @@
       ...item,
       titleSearch: normalizeText(item.title),
       tagsSearch: normalizeText(item.tags.join(' ')),
-      contentSearch: normalizeText(item.content)
+      contentSearch: normalizeText(item.content),
+      attachmentSearch: normalizeText((item.attachments || []).map((file) => file.name).join(' '))
     }));
 
     state.fuse = null;
@@ -333,7 +348,7 @@
   function rankFallback(query, items) {
     return items
       .map((item) => {
-        const fields = [normalizeText(item.title), normalizeText(item.tags.join(' ')), normalizeText(item.content)];
+        const fields = [normalizeText(item.title), normalizeText(item.tags.join(' ')), normalizeText(item.content), normalizeText((item.attachments || []).map((file) => file.name).join(' '))];
         let score = 1;
         for (const field of fields) {
           if (field.includes(query)) score = Math.min(score, 0.05);
@@ -409,6 +424,11 @@
     const updated = document.createElement('span');
     updated.textContent = `Cập nhật ${formatDate(item.updatedAt)}`;
     meta.appendChild(updated);
+    if (item.attachments?.length) {
+      const filesMeta = document.createElement('span');
+      filesMeta.textContent = `📎 ${item.attachments.length} file`;
+      meta.appendChild(filesMeta);
+    }
     titleWrap.append(titleLine, meta);
 
     const right = document.createElement('div');
@@ -441,28 +461,61 @@
     const actions = document.createElement('div');
     actions.className = 'code-actions';
 
-    const copyBtn = codeButton('Copy', () => copyText(item.content));
+    if (item.content) {
+      actions.appendChild(codeButton('Copy', () => copyText(item.content)));
+    }
     const editBtn = codeButton('Sửa', () => openEditor(item));
     const deleteBtn = codeButton('Xóa', () => openDeleteConfirm(item), true);
-    actions.append(copyBtn, editBtn, deleteBtn);
+    actions.append(editBtn, deleteBtn);
     toolbar.append(label, actions);
+    details.appendChild(toolbar);
 
-    const pre = document.createElement('pre');
-    const code = document.createElement('code');
-    const prismLanguage = item.language === 'text' ? 'none' : item.language;
-    if (prismLanguage !== 'none') code.className = `language-${prismLanguage}`;
-    code.textContent = item.content;
-    pre.appendChild(code);
+    if (item.content) {
+      const pre = document.createElement('pre');
+      const code = document.createElement('code');
+      const codeLanguage = item.language === 'text' ? 'none' : item.language;
+      if (codeLanguage !== 'none') code.className = `language-${codeLanguage}`;
+      code.textContent = item.content;
+      pre.appendChild(code);
+      details.appendChild(pre);
+    }
+
+    if (item.attachments?.length) {
+      const attachmentBox = document.createElement('div');
+      attachmentBox.className = 'attachment-box';
+      const attachmentTitle = document.createElement('div');
+      attachmentTitle.className = 'attachment-box-title';
+      attachmentTitle.textContent = `File đính kèm (${item.attachments.length})`;
+      attachmentBox.appendChild(attachmentTitle);
+
+      for (const attachment of item.attachments) {
+        const row = document.createElement('div');
+        row.className = 'attachment-row';
+        const info = document.createElement('div');
+        info.className = 'attachment-info';
+        const name = document.createElement('strong');
+        name.textContent = attachment.name;
+        const size = document.createElement('span');
+        size.textContent = formatBytes(attachment.size);
+        info.append(name, size);
+        const downloadBtn = codeButton('Tải file', () => downloadAttachment(attachment));
+        row.append(info, downloadBtn);
+        attachmentBox.appendChild(row);
+      }
+      details.appendChild(attachmentBox);
+    }
 
     const foot = document.createElement('div');
     foot.className = 'card-foot';
     const created = document.createElement('span');
     created.textContent = `Tạo: ${formatDateTime(item.createdAt)}`;
-    const chars = document.createElement('span');
-    chars.textContent = `${item.content.length.toLocaleString('vi-VN')} ký tự`;
-    foot.append(created, chars);
+    const stats = document.createElement('span');
+    stats.textContent = item.attachments?.length
+      ? `${item.content.length.toLocaleString('vi-VN')} ký tự · ${item.attachments.length} file`
+      : `${item.content.length.toLocaleString('vi-VN')} ký tự`;
+    foot.append(created, stats);
 
-    details.append(toolbar, pre, foot);
+    details.appendChild(foot);
     card.append(summary, details);
 
     return card;
@@ -517,6 +570,10 @@
     els.languageInput.value = item?.language || 'auto';
     els.tagsInput.value = item?.tags?.join(', ') || '';
     els.contentInput.value = item?.content || '';
+    state.pendingFiles = [];
+    state.removedAttachmentPaths = new Set();
+    els.attachmentInput.value = '';
+    renderAttachmentEditor(item?.attachments || []);
     updateDetectedLanguage();
     els.editorModal.hidden = false;
     setTimeout(() => els.titleInput.focus(), 30);
@@ -526,7 +583,10 @@
     if (state.saving) return;
     els.editorModal.hidden = true;
     state.editingId = null;
+    state.pendingFiles = [];
+    state.removedAttachmentPaths = new Set();
     els.editorForm.reset();
+    els.attachmentList.replaceChildren();
     hideFormError(els.editorError);
   }
 
@@ -539,26 +599,45 @@
     const tags = parseTags(els.tagsInput.value);
     const language = els.languageInput.value === 'auto' ? detectLanguage(content) : els.languageInput.value;
     if (!title) return showFormError(els.editorError, 'Tên không được để trống.');
-    if (!content.trim()) return showFormError(els.editorError, 'Nội dung không được để trống.');
+
+    const existing = state.items.find((item) => item.id === state.editingId);
+    const keptAttachments = (existing?.attachments || []).filter((file) => !state.removedAttachmentPaths.has(file.path));
+    if (!content.trim() && !keptAttachments.length && !state.pendingFiles.length) {
+      return showFormError(els.editorError, 'Hãy nhập nội dung hoặc chọn ít nhất một file đính kèm.');
+    }
 
     state.saving = true;
     setBusy(els.saveBtn, true, 'Đang lưu...');
     hideFormError(els.editorError);
     try {
       const now = new Date().toISOString();
-      const existing = state.items.find((item) => item.id === state.editingId);
+      const itemId = existing?.id || makeId();
+      const uploadedAttachments = [];
+
+      for (let i = 0; i < state.pendingFiles.length; i += 1) {
+        setBusy(els.saveBtn, true, `Đang tải file ${i + 1}/${state.pendingFiles.length}...`);
+        uploadedAttachments.push(await uploadAttachment(itemId, state.pendingFiles[i]));
+      }
+
+      const attachments = [...keptAttachments, ...uploadedAttachments];
       let nextItems;
       let message;
       if (existing) {
-        const updated = { ...existing, title, content, tags, language, updatedAt: now };
+        const updated = { ...existing, title, content, tags, language, attachments, updatedAt: now };
         nextItems = state.items.map((item) => item.id === existing.id ? updated : item);
         message = `Update vault item: ${title}`;
       } else {
-        const created = { id: makeId(), title, content, tags, language, createdAt: now, updatedAt: now };
+        const created = { id: itemId, title, content, tags, language, attachments, createdAt: now, updatedAt: now };
         nextItems = [created, ...state.items];
         message = `Add vault item: ${title}`;
       }
+      setBusy(els.saveBtn, true, 'Đang lưu...');
       await persistVault(nextItems, message);
+
+      const removed = (existing?.attachments || []).filter((file) => state.removedAttachmentPaths.has(file.path));
+      for (const attachment of removed) {
+        try { await deleteAttachmentFile(attachment); } catch { /* keep orphan file in git if cleanup fails */ }
+      }
       state.items = nextItems;
       rebuildSearchIndex();
       rebuildLanguageFilter();
@@ -579,7 +658,10 @@
   function closeEditorForced() {
     els.editorModal.hidden = true;
     state.editingId = null;
+    state.pendingFiles = [];
+    state.removedAttachmentPaths = new Set();
     els.editorForm.reset();
+    els.attachmentList.replaceChildren();
     hideFormError(els.editorError);
   }
 
@@ -601,6 +683,9 @@
     try {
       const nextItems = state.items.filter((entry) => entry.id !== item.id);
       await persistVault(nextItems, `Delete vault item: ${item.title}`);
+      for (const attachment of item.attachments || []) {
+        try { await deleteAttachmentFile(attachment); } catch { /* history still keeps prior versions */ }
+      }
       state.items = nextItems;
       state.openIds.delete(item.id);
       rebuildSearchIndex();
@@ -613,6 +698,168 @@
     } finally {
       setBusy(els.confirmDeleteBtn, false, 'Xóa');
     }
+  }
+
+
+  function handleAttachmentSelection() {
+    const selected = Array.from(els.attachmentInput.files || []);
+    for (const file of selected) {
+      if (file.size > CONFIG.maxAttachmentBytes) {
+        showFormError(els.editorError, `${file.name} vượt quá 95 MB.`);
+        els.attachmentInput.value = '';
+        return;
+      }
+    }
+    state.pendingFiles = selected;
+    const existing = state.items.find((item) => item.id === state.editingId);
+    renderAttachmentEditor(existing?.attachments || []);
+    hideFormError(els.editorError);
+  }
+
+  function renderAttachmentEditor(existingAttachments = []) {
+    els.attachmentList.replaceChildren();
+
+    for (const attachment of existingAttachments) {
+      const removed = state.removedAttachmentPaths.has(attachment.path);
+      const row = document.createElement('div');
+      row.className = `attachment-edit-row${removed ? ' removed' : ''}`;
+      const info = document.createElement('div');
+      info.className = 'attachment-info';
+      const name = document.createElement('strong');
+      name.textContent = attachment.name;
+      const size = document.createElement('span');
+      size.textContent = `${formatBytes(attachment.size)} · đã lưu`;
+      info.append(name, size);
+
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'mini-btn';
+      button.textContent = removed ? 'Hoàn tác' : 'Xóa';
+      button.addEventListener('click', () => {
+        if (removed) state.removedAttachmentPaths.delete(attachment.path);
+        else state.removedAttachmentPaths.add(attachment.path);
+        renderAttachmentEditor(existingAttachments);
+      });
+      row.append(info, button);
+      els.attachmentList.appendChild(row);
+    }
+
+    state.pendingFiles.forEach((file, index) => {
+      const row = document.createElement('div');
+      row.className = 'attachment-edit-row pending';
+      const info = document.createElement('div');
+      info.className = 'attachment-info';
+      const name = document.createElement('strong');
+      name.textContent = file.name;
+      const size = document.createElement('span');
+      size.textContent = `${formatBytes(file.size)} · chờ tải lên`;
+      info.append(name, size);
+
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'mini-btn';
+      button.textContent = 'Bỏ';
+      button.addEventListener('click', () => {
+        state.pendingFiles.splice(index, 1);
+        els.attachmentInput.value = '';
+        renderAttachmentEditor(existingAttachments);
+      });
+      row.append(info, button);
+      els.attachmentList.appendChild(row);
+    });
+  }
+
+  async function uploadAttachment(itemId, file) {
+    if (file.size > CONFIG.maxAttachmentBytes) throw new Error(`${file.name} vượt quá 95 MB.`);
+    const safeName = sanitizeFileName(file.name);
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const path = `attachments/${itemId}/${unique}-${safeName}`;
+    const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+    const content = await fileToBase64(file);
+    const result = await githubApi(`/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${encodedPath}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        message: `Add attachment: ${file.name}`,
+        content,
+        branch: CONFIG.branch
+      })
+    });
+    return {
+      name: file.name,
+      path,
+      size: file.size,
+      type: file.type || '',
+      sha: result?.content?.sha || ''
+    };
+  }
+
+  async function deleteAttachmentFile(attachment) {
+    const encodedPath = attachment.path.split('/').map(encodeURIComponent).join('/');
+    let sha = attachment.sha;
+    if (!sha) {
+      const info = await githubApi(`/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${encodedPath}?ref=${encodeURIComponent(CONFIG.branch)}`);
+      sha = info.sha;
+    }
+    if (!sha) return;
+    await githubApi(`/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${encodedPath}`, {
+      method: 'DELETE',
+      body: JSON.stringify({
+        message: `Delete attachment: ${attachment.name}`,
+        sha,
+        branch: CONFIG.branch
+      })
+    });
+  }
+
+  async function downloadAttachment(attachment) {
+    try {
+      const encodedPath = attachment.path.split('/').map(encodeURIComponent).join('/');
+      const response = await fetch(`${CONFIG.apiBase}/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${encodedPath}?ref=${encodeURIComponent(CONFIG.branch)}`, {
+        headers: {
+          Accept: 'application/vnd.github.raw+json',
+          Authorization: `Bearer ${state.token}`,
+          'X-GitHub-Api-Version': '2022-11-28'
+        }
+      });
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = attachment.name || 'download';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    } catch (error) {
+      toast(`Không tải được file: ${friendlyError(error)}`, 'error');
+    }
+  }
+
+  async function fileToBase64(file) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  }
+
+  function sanitizeFileName(name) {
+    const cleaned = String(name || 'file')
+      .replace(/[\\/:*?"<>|\x00-\x1F]/g, '_')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return cleaned || 'file';
+  }
+
+  function formatBytes(bytes) {
+    const value = Number(bytes || 0);
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+    if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   }
 
   function updateDetectedLanguage() {
@@ -646,6 +893,15 @@
       /(^|\n)\s*class\s+\w+/m, /\bprint\s*\(/, /if __name__\s*==\s*["']__main__["']/
     ]);
     if (pyScore >= 2) return 'python';
+
+    const luaScore = score(text, [
+      /\b(?:touchDown|touchMove|touchUp|usleep|appRun|appKill|alert|toast)\s*\(/,
+      /(^|\n)\s*local\s+[A-Za-z_]\w*\s*=/m,
+      /(^|\n)\s*function\s+[A-Za-z_.:]?\w*\s*\(/m,
+      /\brequire\s*\(?\s*["'][^"']+["']/,
+      /\bend\s*$/m
+    ]);
+    if (luaScore >= 2) return 'lua';
 
     if (/^\s*[\[{]/.test(text)) {
       try { JSON.parse(text); return 'json'; } catch { /* not json */ }
