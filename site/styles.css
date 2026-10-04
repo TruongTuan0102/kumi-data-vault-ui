@@ -308,6 +308,33 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   background: var(--panel);
   box-shadow: var(--shadow);
 }
+
+.modal-header,
+.modal-footer { flex: 0 0 auto; }
+.editor-modal {
+  width: min(900px, calc(100vw - 28px));
+  height: min(820px, calc(100dvh - 28px));
+  max-height: calc(100dvh - 28px);
+}
+#editorForm {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#editorForm .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+#editorForm .modal-footer {
+  position: relative;
+  z-index: 2;
+  background: var(--panel);
+}
 .auth-modal, .confirm-modal { width: min(560px, 100%); }
 .editor-modal { width: min(900px, 100%); }
 .modal-header {
@@ -328,7 +355,9 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .field > span { color: var(--muted); font-size: 12px; font-weight: 650; }
 .field input, .field select { min-height: 42px; padding: 0 11px; }
 .field textarea {
-  min-height: 320px;
+  min-height: 180px;
+  height: clamp(190px, 32vh, 320px);
+  max-height: 46vh;
   resize: vertical;
   padding: 12px;
   line-height: 1.55;
@@ -361,6 +390,11 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .attachment-edit-row.pending { border-style: dashed; }
 .attachment-edit-row.removed { opacity: .48; text-decoration: line-through; }
 .attachment-info { min-width: 0; display: grid; gap: 3px; }
+.attachment-field { min-width: 0; }
+.attachment-field input[type="file"] { width: 100%; max-width: 100%; }
+.attachment-edit-row,
+.attachment-row { min-width: 0; }
+.attachment-info { overflow: hidden; }
 .attachment-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .attachment-info span { color: var(--muted); font-size: 11px; }
 .mini-btn {
@@ -424,4 +458,70 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   .field, .field-wide { grid-column: 1; }
   .field textarea { min-height: 260px; }
   .top-actions .btn-ghost { display: none; }
+}
+
+/* Responsive editor: keep every field and the action bar reachable. */
+@media (max-height: 760px) {
+  .modal-backdrop { padding: 10px; align-items: center; }
+  .editor-modal {
+    height: calc(100dvh - 20px);
+    max-height: calc(100dvh - 20px);
+  }
+  .modal-header { padding: 14px 16px 11px; }
+  .modal-header h2 { font-size: 18px; }
+  .modal-header p { margin-top: 4px; }
+  .modal-body { padding: 12px 16px; }
+  .modal-footer { padding: 10px 16px 12px; }
+  .editor-grid { gap: 10px; }
+  .field textarea {
+    min-height: 150px;
+    height: clamp(150px, 25vh, 230px);
+    max-height: 32vh;
+  }
+}
+
+@media (max-width: 760px) {
+  .modal-backdrop {
+    padding: 0;
+    align-items: stretch;
+  }
+  .modal {
+    width: 100%;
+    max-width: none;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+  .editor-modal {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+  .modal-header { padding: 14px 14px 11px; }
+  .modal-body { padding: 12px 14px; }
+  .modal-footer {
+    padding: 10px 14px max(12px, env(safe-area-inset-bottom));
+  }
+  .field textarea {
+    min-height: 180px;
+    height: 30vh;
+    max-height: 38vh;
+  }
+  .attachment-edit-row,
+  .attachment-row {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  .top-actions { gap: 5px; }
+  .btn { padding: 8px 10px; }
+  .modal-header p { font-size: 12px; }
+  .editor-grid { gap: 9px; }
+  .field input,
+  .field select { min-height: 40px; }
+  .field textarea {
+    min-height: 155px;
+    height: 26vh;
+  }
 }
