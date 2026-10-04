@@ -8,7 +8,9 @@
     vaultPath: 'data/vault.json',
     apiBase: 'https://api.github.com',
     tokenKey: 'kumiVaultToken',
-    maxAttachmentBytes: 95 * 1024 * 1024
+    maxAttachmentBytes: (2 * 1024 * 1024 * 1024) - 1,
+    releaseTag: 'kumi-vault-files',
+    releaseName: 'Kumi Vault File Storage'
   });
 
   const LANGUAGE_LABELS = Object.freeze({
@@ -36,7 +38,8 @@
     openIds: new Set(),
     saving: false,
     pendingFiles: [],
-    removedAttachmentPaths: new Set()
+    removedAttachmentPaths: new Set(),
+    fileRelease: null
   };
 
   const $ = (id) => document.getElementById(id);
@@ -249,7 +252,9 @@
     }
     if (!response.ok) {
       const message = data?.message || `${response.status} ${response.statusText}`;
-      throw new Error(message);
+      const error = new Error(message);
+      error.status = response.status;
+      throw error;
     }
     return data;
   }
@@ -276,11 +281,16 @@
       content: String(item.content || ''),
       attachments: Array.isArray(item.attachments) ? item.attachments.map((file) => ({
         name: String(file.name || 'file'),
+        storage: String(file.storage || (file.assetId ? 'release' : 'git')),
         path: String(file.path || ''),
         size: Number(file.size || 0),
         type: String(file.type || ''),
-        sha: String(file.sha || '')
-      })).filter((file) => file.path) : [],
+        sha: String(file.sha || ''),
+        assetId: Number(file.assetId || 0),
+        assetName: String(file.assetName || ''),
+        browserDownloadUrl: String(file.browserDownloadUrl || ''),
+        digest: String(file.digest || '')
+      })).filter((file) => file.path || file.assetId) : [],
       createdAt: item.createdAt || now,
       updatedAt: item.updatedAt || item.createdAt || now
     };
@@ -496,7 +506,7 @@
         const name = document.createElement('strong');
         name.textContent = attachment.name;
         const size = document.createElement('span');
-        size.textContent = formatBytes(attachment.size);
+        size.textContent = `${formatBytes(attachment.size)}${attachment.storage === 'release' ? ' · kho file' : ''}`;
         info.append(name, size);
         const downloadBtn = codeButton('Tải file', () => downloadAttachment(attachment));
         row.append(info, downloadBtn);
@@ -601,7 +611,7 @@
     if (!title) return showFormError(els.editorError, 'Tên không được để trống.');
 
     const existing = state.items.find((item) => item.id === state.editingId);
-    const keptAttachments = (existing?.attachments || []).filter((file) => !state.removedAttachmentPaths.has(file.path));
+    const keptAttachments = (existing?.attachments || []).filter((file) => !state.removedAttachmentPaths.has(attachmentKey(file)));
     if (!content.trim() && !keptAttachments.length && !state.pendingFiles.length) {
       return showFormError(els.editorError, 'Hãy nhập nội dung hoặc chọn ít nhất một file đính kèm.');
     }
@@ -634,7 +644,7 @@
       setBusy(els.saveBtn, true, 'Đang lưu...');
       await persistVault(nextItems, message);
 
-      const removed = (existing?.attachments || []).filter((file) => state.removedAttachmentPaths.has(file.path));
+      const removed = (existing?.attachments || []).filter((file) => state.removedAttachmentPaths.has(attachmentKey(file)));
       for (const attachment of removed) {
         try { await deleteAttachmentFile(attachment); } catch { /* keep orphan file in git if cleanup fails */ }
       }
@@ -705,7 +715,7 @@
     const selected = Array.from(els.attachmentInput.files || []);
     for (const file of selected) {
       if (file.size > CONFIG.maxAttachmentBytes) {
-        showFormError(els.editorError, `${file.name} vượt quá 95 MB.`);
+        showFormError(els.editorError, `${file.name} quá lớn. Mỗi file phải dưới 2 GB.`);
         els.attachmentInput.value = '';
         return;
       }
@@ -720,7 +730,8 @@
     els.attachmentList.replaceChildren();
 
     for (const attachment of existingAttachments) {
-      const removed = state.removedAttachmentPaths.has(attachment.path);
+      const key = attachmentKey(attachment);
+      const removed = state.removedAttachmentPaths.has(key);
       const row = document.createElement('div');
       row.className = `attachment-edit-row${removed ? ' removed' : ''}`;
       const info = document.createElement('div');
@@ -728,7 +739,7 @@
       const name = document.createElement('strong');
       name.textContent = attachment.name;
       const size = document.createElement('span');
-      size.textContent = `${formatBytes(attachment.size)} · đã lưu`;
+      size.textContent = `${formatBytes(attachment.size)} · đã lưu${attachment.storage === 'release' ? ' · kho file' : ''}`;
       info.append(name, size);
 
       const button = document.createElement('button');
@@ -736,8 +747,8 @@
       button.className = 'mini-btn';
       button.textContent = removed ? 'Hoàn tác' : 'Xóa';
       button.addEventListener('click', () => {
-        if (removed) state.removedAttachmentPaths.delete(attachment.path);
-        else state.removedAttachmentPaths.add(attachment.path);
+        if (removed) state.removedAttachmentPaths.delete(key);
+        else state.removedAttachmentPaths.add(key);
         renderAttachmentEditor(existingAttachments);
       });
       row.append(info, button);
@@ -752,7 +763,7 @@
       const name = document.createElement('strong');
       name.textContent = file.name;
       const size = document.createElement('span');
-      size.textContent = `${formatBytes(file.size)} · chờ tải lên`;
+      size.textContent = `${formatBytes(file.size)} · chờ tải lên kho file`;
       info.append(name, size);
 
       const button = document.createElement('button');
@@ -770,34 +781,101 @@
   }
 
   async function uploadAttachment(itemId, file) {
-    if (file.size > CONFIG.maxAttachmentBytes) throw new Error(`${file.name} vượt quá 95 MB.`);
-    const safeName = sanitizeFileName(file.name);
-    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const path = `attachments/${itemId}/${unique}-${safeName}`;
-    const encodedPath = path.split('/').map(encodeURIComponent).join('/');
-    const content = await fileToBase64(file);
-    const result = await githubApi(`/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${encodedPath}`, {
-      method: 'PUT',
+    if (file.size > CONFIG.maxAttachmentBytes) {
+      throw new Error(`${file.name} quá lớn. Mỗi file phải dưới 2 GB.`);
+    }
+    return uploadReleaseAttachment(itemId, file);
+  }
+
+  async function getOrCreateFileRelease() {
+    if (state.fileRelease?.id) return state.fileRelease;
+
+    try {
+      const release = await githubApi(
+        `/repos/${CONFIG.owner}/${CONFIG.repo}/releases/tags/${encodeURIComponent(CONFIG.releaseTag)}`
+      );
+      state.fileRelease = release;
+      return release;
+    } catch (error) {
+      if (error.status !== 404) throw error;
+    }
+
+    const release = await githubApi(`/repos/${CONFIG.owner}/${CONFIG.repo}/releases`, {
+      method: 'POST',
       body: JSON.stringify({
-        message: `Add attachment: ${file.name}`,
-        content,
-        branch: CONFIG.branch
+        tag_name: CONFIG.releaseTag,
+        target_commitish: CONFIG.branch,
+        name: CONFIG.releaseName,
+        body: 'Private attachment storage for Kumi Data Vault. Managed automatically by the vault UI.',
+        draft: false,
+        prerelease: false
       })
     });
+    state.fileRelease = release;
+    return release;
+  }
+
+  async function uploadReleaseAttachment(itemId, file) {
+    const release = await getOrCreateFileRelease();
+    const safeName = sanitizeFileName(file.name);
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const assetName = `${itemId}--${unique}--${safeName}`;
+    const uploadUrl =
+      `https://uploads.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/releases/${release.id}/assets?name=${encodeURIComponent(assetName)}`;
+
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${state.token}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Content-Type': file.type || 'application/octet-stream'
+      },
+      body: file
+    });
+
+    const text = await response.text();
+    let data = null;
+    if (text) {
+      try { data = JSON.parse(text); } catch { data = text; }
+    }
+
+    if (!response.ok) {
+      const message = data?.message || `${response.status} ${response.statusText}`;
+      throw new Error(`Không tải được ${file.name}: ${message}`);
+    }
+
     return {
       name: file.name,
-      path,
-      size: file.size,
-      type: file.type || '',
-      sha: result?.content?.sha || ''
+      storage: 'release',
+      path: '',
+      size: Number(data?.size || file.size),
+      type: String(data?.content_type || file.type || ''),
+      sha: '',
+      assetId: Number(data?.id || 0),
+      assetName: String(data?.name || assetName),
+      browserDownloadUrl: String(data?.browser_download_url || ''),
+      digest: String(data?.digest || '')
     };
   }
 
   async function deleteAttachmentFile(attachment) {
+    if (attachment.storage === 'release' || attachment.assetId) {
+      if (!attachment.assetId) return;
+      await githubApi(
+        `/repos/${CONFIG.owner}/${CONFIG.repo}/releases/assets/${attachment.assetId}`,
+        { method: 'DELETE' }
+      );
+      return;
+    }
+
+    if (!attachment.path) return;
     const encodedPath = attachment.path.split('/').map(encodeURIComponent).join('/');
     let sha = attachment.sha;
     if (!sha) {
-      const info = await githubApi(`/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${encodedPath}?ref=${encodeURIComponent(CONFIG.branch)}`);
+      const info = await githubApi(
+        `/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${encodedPath}?ref=${encodeURIComponent(CONFIG.branch)}`
+      );
       sha = info.sha;
     }
     if (!sha) return;
@@ -813,14 +891,35 @@
 
   async function downloadAttachment(attachment) {
     try {
-      const encodedPath = attachment.path.split('/').map(encodeURIComponent).join('/');
-      const response = await fetch(`${CONFIG.apiBase}/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${encodedPath}?ref=${encodeURIComponent(CONFIG.branch)}`, {
-        headers: {
-          Accept: 'application/vnd.github.raw+json',
-          Authorization: `Bearer ${state.token}`,
-          'X-GitHub-Api-Version': '2022-11-28'
-        }
-      });
+      let response;
+
+      if (attachment.storage === 'release' || attachment.assetId) {
+        if (!attachment.assetId) throw new Error('Thiếu mã file trên GitHub Release.');
+        response = await fetch(
+          `${CONFIG.apiBase}/repos/${CONFIG.owner}/${CONFIG.repo}/releases/assets/${attachment.assetId}`,
+          {
+            headers: {
+              Accept: 'application/octet-stream',
+              Authorization: `Bearer ${state.token}`,
+              'X-GitHub-Api-Version': '2022-11-28'
+            }
+          }
+        );
+      } else {
+        if (!attachment.path) throw new Error('Thiếu đường dẫn file.');
+        const encodedPath = attachment.path.split('/').map(encodeURIComponent).join('/');
+        response = await fetch(
+          `${CONFIG.apiBase}/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${encodedPath}?ref=${encodeURIComponent(CONFIG.branch)}`,
+          {
+            headers: {
+              Accept: 'application/vnd.github.raw+json',
+              Authorization: `Bearer ${state.token}`,
+              'X-GitHub-Api-Version': '2022-11-28'
+            }
+          }
+        );
+      }
+
       if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -834,6 +933,11 @@
     } catch (error) {
       toast(`Không tải được file: ${friendlyError(error)}`, 'error');
     }
+  }
+
+  function attachmentKey(attachment) {
+    if (attachment?.assetId) return `release:${attachment.assetId}`;
+    return `git:${attachment?.path || ''}`;
   }
 
   async function fileToBase64(file) {
