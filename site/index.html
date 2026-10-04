@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark light" />
   <meta name="description" content="Kumi Data Vault - kho code/data cá nhân lưu trong GitHub private repository" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://api.github.com; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://api.github.com https://uploads.github.com https://github.com https://*.githubusercontent.com; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'" />
   <title>Kumi Data Vault</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
@@ -134,7 +134,7 @@
           <label class="field field-wide attachment-field">
             <span>File đính kèm</span>
             <input id="attachmentInput" type="file" multiple />
-            <small class="field-help">Có thể chọn nhiều file, kể cả .exe, .zip, .ipa... Mỗi file tối đa 95 MB.</small>
+            <small class="field-help">Có thể chọn nhiều file, kể cả .exe, .zip, .ipa... File mới được lưu riêng bằng GitHub Release, mỗi file dưới 2 GB.</small>
             <div id="attachmentList" class="attachment-editor-list"></div>
           </label>
 
