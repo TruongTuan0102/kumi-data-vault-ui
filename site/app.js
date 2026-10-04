@@ -24,7 +24,7 @@
   });
 
   const state = {
-    token: sessionStorage.getItem(CONFIG.tokenKey) || '',
+    token: localStorage.getItem(CONFIG.tokenKey) || sessionStorage.getItem(CONFIG.tokenKey) || '',
     connected: false,
     items: [],
     vaultSha: '',
@@ -82,8 +82,11 @@
       return;
     }
     try {
-      await connectWithToken(state.token, false);
+      await connectWithToken(state.token);
+      localStorage.setItem(CONFIG.tokenKey, state.token);
+      sessionStorage.removeItem(CONFIG.tokenKey);
     } catch (error) {
+      localStorage.removeItem(CONFIG.tokenKey);
       sessionStorage.removeItem(CONFIG.tokenKey);
       state.token = '';
       showAuth(error.message || 'Không thể kết nối GitHub.');
@@ -152,7 +155,7 @@
     setBusy(els.authConnectBtn, true, 'Đang kết nối...');
     hideFormError(els.authError);
     try {
-      await connectWithToken(token, true);
+      await connectWithToken(token);
       els.tokenInput.value = '';
       els.authModal.hidden = true;
       toast('Đã kết nối kho GitHub riêng tư.', 'success');
@@ -163,7 +166,7 @@
     }
   }
 
-  async function connectWithToken(token, persist) {
+  async function connectWithToken(token) {
     state.token = token;
     const repo = await githubApi(`/repos/${CONFIG.owner}/${CONFIG.repo}`);
     if (repo.private !== true) {
@@ -173,7 +176,8 @@
     state.items = Array.isArray(vault.items) ? vault.items.map(sanitizeLoadedItem) : [];
     state.vaultSha = vault.sha;
     state.connected = true;
-    if (persist) sessionStorage.setItem(CONFIG.tokenKey, token);
+    localStorage.setItem(CONFIG.tokenKey, token);
+    sessionStorage.removeItem(CONFIG.tokenKey);
     els.lockBtn.hidden = false;
     els.repoBadge.textContent = `${CONFIG.owner}/${CONFIG.repo} · Private`;
     els.repoBadge.classList.add('online');
@@ -705,6 +709,7 @@
   }
 
   function lockVault() {
+    localStorage.removeItem(CONFIG.tokenKey);
     sessionStorage.removeItem(CONFIG.tokenKey);
     state.token = '';
     state.connected = false;
