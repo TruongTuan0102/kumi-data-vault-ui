@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="description" content="Kumi Data Vault - kho code/data cá nhân lưu trong GitHub private repository" />
+  <title>Kumi Data Vault</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-wrap">
+        <div class="brand-mark">K</div>
+        <div>
+          <div class="brand-title">Kumi Data Vault</div>
+          <div class="brand-subtitle">Private code & command library</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="themeBtn" class="icon-btn" type="button" title="Đổi giao diện">◐</button>
+        <button id="lockBtn" class="btn btn-ghost" type="button" hidden>Khóa</button>
+        <button id="addBtn" class="btn btn-primary" type="button">+ Thêm Data</button>
+      </div>
+    </header>
+
+    <main class="content">
+      <section class="hero-panel">
+        <div>
+          <h1>Kho lệnh cá nhân</h1>
+          <p>Tìm nhanh RouterOS, PowerShell, Python, CMD, Bash và các ghi chú kỹ thuật của bạn.</p>
+        </div>
+        <div id="repoBadge" class="repo-badge">Chưa kết nối GitHub</div>
+      </section>
+
+      <section class="search-panel">
+        <div class="search-row">
+          <div class="search-box">
+            <span class="search-icon">⌕</span>
+            <input id="searchInput" type="search" autocomplete="off" spellcheck="false" placeholder="Tìm theo tên, tag hoặc nội dung... (Ctrl+K)" />
+            <button id="clearSearchBtn" class="search-clear" type="button" aria-label="Xóa tìm kiếm">×</button>
+          </div>
+          <select id="languageFilter" class="filter-select" aria-label="Lọc theo ngôn ngữ">
+            <option value="all">Tất cả ngôn ngữ</option>
+          </select>
+        </div>
+        <div id="suggestionBar" class="suggestion-bar" hidden></div>
+        <div class="summary-row">
+          <span id="resultSummary">0 mục</span>
+          <span class="shortcut-hint">Ctrl+N để thêm mới</span>
+        </div>
+      </section>
+
+      <section id="emptyState" class="empty-state" hidden>
+        <div class="empty-icon">⌁</div>
+        <h2>Chưa có dữ liệu</h2>
+        <p>Nhấn “+ Thêm Data” để tạo mục đầu tiên.</p>
+      </section>
+
+      <section id="cards" class="cards" aria-live="polite"></section>
+    </main>
+  </div>
+
+  <div id="authModal" class="modal-backdrop" hidden>
+    <div class="modal auth-modal" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <div class="modal-header">
+        <div>
+          <h2 id="authTitle">Kết nối kho GitHub riêng tư</h2>
+          <p>Token chỉ được giữ trong session của trình duyệt và không được ghi vào repository.</p>
+        </div>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span>Fine-grained GitHub token</span>
+          <input id="tokenInput" type="password" autocomplete="off" placeholder="github_pat_..." />
+        </label>
+        <div class="auth-note">
+          Token nên chỉ có quyền với repo <b>TruongTuan0102/kumi-data-vault</b> và quyền <b>Contents: Read and write</b>.
+        </div>
+        <div id="authError" class="form-error" hidden></div>
+      </div>
+      <div class="modal-footer">
+        <button id="authConnectBtn" class="btn btn-primary" type="button">Kết nối</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="editorModal" class="modal-backdrop" hidden>
+    <div class="modal editor-modal" role="dialog" aria-modal="true" aria-labelledby="editorTitle">
+      <div class="modal-header">
+        <div>
+          <h2 id="editorTitle">Thêm Data</h2>
+          <p>Lưu lệnh/code theo dạng thu gọn và tìm kiếm gần đúng.</p>
+        </div>
+        <button id="editorCloseBtn" class="icon-btn" type="button" aria-label="Đóng">×</button>
+      </div>
+      <form id="editorForm">
+        <div class="modal-body editor-grid">
+          <label class="field field-wide">
+            <span>Tên</span>
+            <input id="titleInput" type="text" maxlength="160" required placeholder="Ví dụ: Tạo 150 SOCKS/tun2socks" />
+          </label>
+
+          <label class="field">
+            <span>Loại code</span>
+            <select id="languageInput">
+              <option value="auto">Tự động nhận diện</option>
+              <option value="routeros">RouterOS</option>
+              <option value="powershell">PowerShell</option>
+              <option value="python">Python</option>
+              <option value="batch">CMD / Batch</option>
+              <option value="bash">Bash / Shell</option>
+              <option value="javascript">JavaScript</option>
+              <option value="json">JSON</option>
+              <option value="markup">HTML / XML</option>
+              <option value="css">CSS</option>
+              <option value="text">Plain Text</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Tags</span>
+            <input id="tagsInput" type="text" placeholder="routeros, socks, tun2socks, kumi" />
+          </label>
+
+          <label class="field field-wide">
+            <span>Nội dung</span>
+            <textarea id="contentInput" required spellcheck="false" placeholder="Dán code hoặc nội dung vào đây..."></textarea>
+          </label>
+
+          <div id="detectedLanguage" class="detected-language field-wide"></div>
+          <div id="editorError" class="form-error field-wide" hidden></div>
+        </div>
+        <div class="modal-footer">
+          <button id="cancelEditorBtn" class="btn btn-ghost" type="button">Hủy</button>
+          <button id="saveBtn" class="btn btn-primary" type="submit">Lưu</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="confirmModal" class="modal-backdrop" hidden>
+    <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <div class="modal-header">
+        <div>
+          <h2 id="confirmTitle">Xóa mục này?</h2>
+          <p id="confirmText">Thao tác này sẽ xóa file khỏi nhánh dữ liệu.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="cancelDeleteBtn" class="btn btn-ghost" type="button">Hủy</button>
+        <button id="confirmDeleteBtn" class="btn btn-danger" type="button">Xóa</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-powershell.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-batch.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markup.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-css.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
