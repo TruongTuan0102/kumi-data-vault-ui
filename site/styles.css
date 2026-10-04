@@ -337,6 +337,45 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 4px var(--accent-soft); }
 .detected-language { min-height: 20px; color: var(--muted); font-size: 12px; }
+.field-help { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.attachment-field input[type="file"] {
+  min-height: 44px;
+  padding: 9px 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+  background: var(--panel-2);
+  color: var(--muted);
+}
+.attachment-editor-list { display: grid; gap: 8px; margin-top: 2px; }
+.attachment-edit-row,
+.attachment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--panel-2);
+}
+.attachment-edit-row.pending { border-style: dashed; }
+.attachment-edit-row.removed { opacity: .48; text-decoration: line-through; }
+.attachment-info { min-width: 0; display: grid; gap: 3px; }
+.attachment-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.attachment-info span { color: var(--muted); font-size: 11px; }
+.mini-btn {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 6px 9px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.attachment-box { padding: 14px; border-top: 1px solid var(--border); background: var(--panel-3); }
+.attachment-box-title { margin-bottom: 8px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.attachment-box .attachment-row { background: var(--panel); }
 .auth-note {
   margin-top: 12px;
   padding: 11px 12px;
