@@ -71,24 +71,9 @@
     toast: $('toast')
   };
 
-  registerRouterOsPrism();
   applySavedTheme();
   bindEvents();
   bootstrap();
-
-  function registerRouterOsPrism() {
-    if (!window.Prism) return;
-    Prism.languages.routeros = {
-      comment: { pattern: /(^|[^\\])#.*/m, lookbehind: true, greedy: true },
-      string: { pattern: /"(?:\\.|[^"\\])*"/, greedy: true },
-      keyword: /(^|\s)(?::(?:do|put|local|set|if|for|foreach|while|delay|return|error|log|parse|execute|global|typeof|tostr|tonum|tobool|totime|toarray|toblock|pick|len|find|get)|on-error)(?=\s|=|\{|\[|$)/m,
-      builtin: /\/(?:interface|ip|routing|container|system|tool|user|file|log|queue|certificate|port)(?:\/[\w-]+)*/,
-      boolean: /\b(?:true|false|yes|no)\b/i,
-      number: /\b(?:0x[\da-f]+|\d+(?:\.\d+)?(?:ms|s|m|h|d)?|(?:\d{1,3}\.){3}\d{1,3}(?:\/\d{1,2})?)\b/i,
-      operator: /&&|\|\||!=|<=|>=|=|<|>|\+|-|\*|\.|\b(?:and|or|in)\b/,
-      punctuation: /[{}[\]();,]/
-    };
-  }
 
   async function bootstrap() {
     render();
@@ -302,23 +287,7 @@
       contentSearch: normalizeText(item.content)
     }));
 
-    if (window.Fuse) {
-      state.fuse = new Fuse(docs, {
-        includeScore: true,
-        ignoreLocation: true,
-        shouldSort: true,
-        threshold: 0.42,
-        distance: 180,
-        minMatchCharLength: 2,
-        keys: [
-          { name: 'titleSearch', weight: 0.52 },
-          { name: 'tagsSearch', weight: 0.28 },
-          { name: 'contentSearch', weight: 0.20 }
-        ]
-      });
-    } else {
-      state.fuse = null;
-    }
+    state.fuse = null;
   }
 
   function rebuildLanguageFilter() {
@@ -492,11 +461,6 @@
     details.append(toolbar, pre, foot);
     card.append(summary, details);
 
-    if (isOpen && window.Prism && prismLanguage !== 'none') {
-      requestAnimationFrame(() => {
-        try { Prism.highlightElement(code); } catch { /* keep plain text */ }
-      });
-    }
     return card;
   }
 
