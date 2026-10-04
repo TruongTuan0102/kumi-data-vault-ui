@@ -110,6 +110,7 @@
               <option value="routeros">RouterOS</option>
               <option value="powershell">PowerShell</option>
               <option value="python">Python</option>
+              <option value="lua">Lua / AutoTouch</option>
               <option value="batch">CMD / Batch</option>
               <option value="bash">Bash / Shell</option>
               <option value="javascript">JavaScript</option>
@@ -127,7 +128,14 @@
 
           <label class="field field-wide">
             <span>Nội dung</span>
-            <textarea id="contentInput" required spellcheck="false" placeholder="Dán code hoặc nội dung vào đây..."></textarea>
+            <textarea id="contentInput" spellcheck="false" placeholder="Dán code hoặc nội dung vào đây... Có thể để trống nếu mục này chỉ có file."></textarea>
+          </label>
+
+          <label class="field field-wide attachment-field">
+            <span>File đính kèm</span>
+            <input id="attachmentInput" type="file" multiple />
+            <small class="field-help">Có thể chọn nhiều file, kể cả .exe, .zip, .ipa... Mỗi file tối đa 95 MB.</small>
+            <div id="attachmentList" class="attachment-editor-list"></div>
           </label>
 
           <div id="detectedLanguage" class="detected-language field-wide"></div>
