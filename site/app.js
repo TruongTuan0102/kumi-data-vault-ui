@@ -6,6 +6,7 @@
     repo: 'kumi-data-vault',
     branch: 'vault-data',
     vaultPath: 'data/vault.json',
+    quickPath: 'data/quick-notes.json',
     apiBase: 'https://api.github.com',
     tokenKey: 'kumiVaultToken',
     maxAttachmentBytes: (2 * 1024 * 1024 * 1024) - 1,
@@ -32,6 +33,7 @@
     connected: false,
     items: [],
     vaultSha: '',
+    quickSha: '',
     fuse: null,
     editingId: null,
     deletingId: null,
@@ -185,6 +187,7 @@
     const vault = await loadVault();
     state.items = Array.isArray(vault.items) ? vault.items.map(sanitizeLoadedItem) : [];
     state.vaultSha = vault.sha;
+    state.quickSha = vault.quickSha;
     state.connected = true;
     localStorage.setItem(CONFIG.tokenKey, token);
     sessionStorage.removeItem(CONFIG.tokenKey);
@@ -197,41 +200,67 @@
   }
 
   async function loadVault() {
-    const encodedPath = CONFIG.vaultPath.split('/').map(encodeURIComponent).join('/');
-    const payload = await githubApi(`/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${encodedPath}?ref=${encodeURIComponent(CONFIG.branch)}`);
-    if (!payload.sha) throw new Error('Không đọc được SHA của vault.');
-
-    let text = '';
-    if (payload.content && payload.encoding === 'base64') {
-      text = decodeBase64Utf8(payload.content);
-    } else {
-      const raw = await githubRaw(`/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${encodedPath}?ref=${encodeURIComponent(CONFIG.branch)}`);
-      text = raw;
-    }
-
-    let parsed;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      throw new Error('File data/vault.json không phải JSON hợp lệ.');
-    }
-    return { items: parsed.items || [], sha: payload.sha };
+    const main = await loadJsonFile(CONFIG.vaultPath);
+    const quick = await loadJsonFile(CONFIG.quickPath);
+    const originalItems = Array.isArray(main.data.items) ? main.data.items : [];
+    const quickItems = Array.isArray(quick.data.items) ? quick.data.items : [];
+    return {
+      items: [
+        ...originalItems.map((item) => ({ ...item, origin: 'main' })),
+        ...quickItems.map((item) => ({ ...item, origin: 'quick' }))
+      ],
+      sha: main.sha,
+      quickSha: quick.sha
+    };
   }
 
-  async function persistVault(nextItems, commitMessage) {
-    if (!state.vaultSha) throw new Error('Thiếu SHA của vault. Hãy tải lại trang.');
-    const encodedPath = CONFIG.vaultPath.split('/').map(encodeURIComponent).join('/');
+  async function loadJsonFile(path) {
+    const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+    const payload = await githubApi(
+      `/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${encodedPath}?ref=${encodeURIComponent(CONFIG.branch)}`
+    );
+    if (!payload.sha) throw new Error(`Không đọc được SHA của ${path}.`);
+
+    let raw = '';
+    if (payload.content && payload.encoding === 'base64') {
+      raw = decodeBase64Utf8(payload.content);
+    } else {
+      raw = await githubRaw(
+        `/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${encodedPath}?ref=${encodeURIComponent(CONFIG.branch)}`
+      );
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error(`File ${path} không phải JSON hợp lệ.`);
+    }
+    return { data: parsed, sha: payload.sha };
+  }
+
+  async function persistVault(nextItems, commitMessage, origin = 'main') {
+    const quick = origin === 'quick';
+    const sha = quick ? state.quickSha : state.vaultSha;
+    if (!sha) throw new Error('Thiếu SHA của kho dữ liệu. Hãy tải lại trang.');
+
+    const path = quick ? CONFIG.quickPath : CONFIG.vaultPath;
+    const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+    const storedItems = nextItems
+      .filter((item) => (item.origin === 'quick') === quick)
+      .map(({ origin: ignored, ...item }) => item);
     const body = {
       message: commitMessage,
-      content: encodeBase64Utf8(JSON.stringify({ version: 1, items: nextItems }, null, 2) + '\n'),
-      sha: state.vaultSha,
+      content: encodeBase64Utf8(JSON.stringify({ version: 1, items: storedItems }, null, 2) + '\n'),
+      sha,
       branch: CONFIG.branch
     };
     const result = await githubApi(`/repos/${CONFIG.owner}/${CONFIG.repo}/contents/${encodedPath}`, {
       method: 'PUT',
       body: JSON.stringify(body)
     });
-    state.vaultSha = result?.content?.sha || state.vaultSha;
+    const newSha = result?.content?.sha || sha;
+    if (quick) state.quickSha = newSha;
+    else state.vaultSha = newSha;
   }
 
   async function githubApi(path, options = {}) {
@@ -279,6 +308,7 @@
       language: LANGUAGE_LABELS[item.language] ? item.language : 'text',
       tags: Array.isArray(item.tags) ? item.tags.map(String).filter(Boolean) : [],
       content: String(item.content || ''),
+      origin: item.origin === 'quick' ? 'quick' : 'main',
       attachments: Array.isArray(item.attachments) ? item.attachments.map((file) => ({
         name: String(file.name || 'file'),
         storage: String(file.storage || (file.assetId ? 'release' : 'git')),
@@ -637,12 +667,12 @@
         nextItems = state.items.map((item) => item.id === existing.id ? updated : item);
         message = `Update vault item: ${title}`;
       } else {
-        const created = { id: itemId, title, content, tags, language, attachments, createdAt: now, updatedAt: now };
+        const created = { id: itemId, title, content, tags, language, attachments, origin: 'main', createdAt: now, updatedAt: now };
         nextItems = [created, ...state.items];
         message = `Add vault item: ${title}`;
       }
       setBusy(els.saveBtn, true, 'Đang lưu...');
-      await persistVault(nextItems, message);
+      await persistVault(nextItems, message, existing?.origin || 'main');
 
       const removed = (existing?.attachments || []).filter((file) => state.removedAttachmentPaths.has(attachmentKey(file)));
       for (const attachment of removed) {
@@ -692,7 +722,7 @@
     setBusy(els.confirmDeleteBtn, true, 'Đang xóa...');
     try {
       const nextItems = state.items.filter((entry) => entry.id !== item.id);
-      await persistVault(nextItems, `Delete vault item: ${item.title}`);
+      await persistVault(nextItems, `Delete vault item: ${item.title}`, item.origin || 'main');
       for (const attachment of item.attachments || []) {
         try { await deleteAttachmentFile(attachment); } catch { /* history still keeps prior versions */ }
       }
@@ -1075,6 +1105,7 @@
     state.connected = false;
     state.items = [];
     state.vaultSha = '';
+    state.quickSha = '';
     state.openIds.clear();
     state.fuse = null;
     els.lockBtn.hidden = true;
